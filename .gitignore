@@ -172,3 +172,10 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# vsCode settings
+.vscode/
+
+# Excel temp files
+*.xlsx
+

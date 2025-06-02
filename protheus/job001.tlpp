@@ -1,0 +1,234 @@
+#INCLUDE "TOTVS.CH"
+
+#define AMQP_AUTODELETE .F.
+#define AMQP_EXCLUSIVE .F.
+#define AMQP_DURABLE .T.
+#define AMQP_PERSISTENT .T.
+#define AMQP_AUTOACK .F.    //Após o consumo da Fila, automaticamente a mensagem é removida
+#define fixed_channel_id 1
+#define AMQP_PASSIVE .F.
+
+Namespace RabbitMQ
+
+Main User Function ConsumerOrders()
+    Local cHost := "localhost"
+    Local nPort := 5672
+    Local cUser := "guest"
+    Local cPass := "guest"
+    Local cQueue := "pedidos"
+    Local nX
+    Local oMessage := JsonObject():New()
+
+    Local oConsumer := TAMQP():New( ;
+        cHost, ;
+        nPort, ;
+        cUser, ;
+        cPass, ;
+        fixed_channel_id )
+
+    // Abrir/Conectar a Fila
+    oConsumer:QueueDeclare( ;
+        cQueue, ;
+        AMQP_DURABLE, ;
+        AMQP_EXCLUSIVE, ;
+        AMQP_AUTODELETE, ;
+        AMQP_PASSIVE )
+
+    // Verificar o status, se for zero, preparar o ambiente do Protheus
+    if oConsumer:Status() == 0
+        // Preparar o ambiente do Protheus
+        prepareEnv()
+    else
+        // Se não for zero, exibir mensagem de erro
+        conout( "Erro ao conectar na Fila RabbitMQ: " + cValToChar(oConsumer:Status()) )
+        return
+    endif
+
+    // Iniciar o consumo
+    for nX := 1 to oConsumer:MessageCount()
+        oConsumer:BasicConsume( ;
+            cQueue, ;
+            AMQP_AUTOACK )
+
+        oMessage := JsonObject():New()
+        oMessage:FromJson( ;
+            oConsumer:Body )
+
+        // Processar a mensagem - Gravar o Pedido
+        lIncSucess := insertOrder(oMessage)
+
+        // Com sucesso, remover a mensagem da fila
+        if lIncSucess
+            oConsumer:BasicAck( nX, .F.)
+        endif
+
+        FreeObj( oMessage )
+    next nX
+
+    FreeObj( oConsumer )
+
+
+return
+
+
+Main User Function ProducerOrders(cMessage)
+    Local cHost := "localhost"
+    Local nPort := 5672
+    Local cUser := "guest"
+    Local cPass := "guest"
+    Local cQueue := "pedidos_protheus"
+    Default cMessage := ""
+
+    Local oProducer := TAMQP():New( ;
+        cHost, ;
+        nPort, ;
+        cUser, ;
+        cPass, ;
+        fixed_channel_id )
+
+    // Abrir/Conectar a Fila
+    oProducer:QueueDeclare( ;
+        cQueue, ;
+        AMQP_DURABLE, ;
+        AMQP_EXCLUSIVE, ;
+        AMQP_AUTODELETE, ;
+        AMQP_PASSIVE )
+
+    // Verificar o status, se for zero, preparar o ambiente do Protheus
+    if oProducer:Status() == 0
+        if Empty(FWCodEmp())
+            // Preparar o ambiente do Protheus
+            prepareEnv()
+        endif
+    else
+        // Se não for zero, exibir mensagem de erro
+        conout( "Erro ao conectar na Fila RabbitMQ: " + cValToChar(oProducer:Status()) )
+        return
+    endif
+
+    oProducer:BasicPublish( ;
+        '', ; // Exchange - Indica o nome da exchage onde será enviada a mensagem. Vazio para usar a fila diretamente
+        cQueue, ; // Indica a classificação de onde será enviada a mensagem (fila, rota, etc.) na exchange.
+        AMQP_PERSISTENT, ; // Indica que a requisição será persistente.
+        cMessage, ; // Informa a mensagem a ser postada.
+        Nil, ; // Id de correlação
+        Nil ; // Fila para resposta dessa mensagem
+         )
+
+    FreeObj( oProducer )
+
+return
+
+
+
+
+
+/*/{Protheus.doc} prepareEnv
+Função para abrir o ambiente do Protheus para a execução de rotinas automáticas.
+@description Função para abrir o ambiente do Protheus para a execução de rotinas automáticas.
+@type function
+@version 12.1.2410
+@author Antonio da Costa Jr - antonio.costa.protheus@gmail.com - https://github.com/antoniodacostajr
+@since 29/05/2025
+/*/
+static Function prepareEnv()
+
+local cRpcEmp       := "99"         // Código da empresa
+local cRpcFil       := "01"	        // Código da filial.	
+local cEnvUser	    := Nil	        // Nome do usuário.	
+local cEnvPass	    := Nil	        // Senha do usuário.	
+local cEnvMod	    := "FAT"        //Código do módulo.	'FAT'	
+local cFunName	    := "MATA410"    //Nome da rotina que será setada para retorno da função FunName(). É também utilizado na gravação da rotina que executou as inclusões/alterações na tabela de auditoria	'RPC'	
+local aTables       := {"SC5","SC6","SA1","SA2","SB1","SB2","SF4"}	//Array contendo as tabelas a serem abertas.	{}	
+local lShowFinal    := .T.          //Logical	Alimenta a variável publica lMsFinalAuto.	.F.	
+local lAbend	    := .T.          // gera mensagem de erro ao ocorrer erro ao checar a licença para a estação.	.T.	
+local lOpenSX	    := .T.          // SE .T. pega a primeira filial do arquivo SM0 quando não passar a filial e realiza a abertura dos SXs.	.T.	
+local lConnect	    := .T.          // Se .T., faz a abertura da conexão com servidor As400, SQL Server etc.	.T.
+    
+    RPcSetEnv( cRpcEmp, ;
+        cRpcFil, ;
+        cEnvUser, ;
+        cEnvPass, ;
+        cEnvMod, ;
+        cFunName, ;
+        aTables, ;
+        lShowFinal, ;
+        lAbend, ;
+        lOpenSX, ;
+        lConnect )
+
+return
+
+
+/*/{Protheus.doc} insertOrder
+Função para execução do MsExecAuto para inclusão de pedidos de venda.
+@description Função para execução do MsExecAuto para inclusão de pedidos de venda.
+@type function
+@version 12.1.2410
+@author Antonio da Costa Jr - antonio.costa.protheus@gmail.com - https://github.com/antoniodacostajr
+@since 29/05/2025
+@param objOrder, object, JSon com os dados do pedido de venda.
+@return logical, Sucesso na inclusão do pedido de venda.
+/*/
+Static Function insertOrder(objOrder)
+local lRet      := .T.
+local aCabec    := {}
+local aItens    := {}
+local aLinha    := {}
+local cDoc      := GetSxeNum("SC5","C5_NUM","C5_NUM" + FWCodEmp() + FWCodFil())
+local nX
+Local aErroAuto  := {}
+
+Private lMsErroAuto    := .F.   // variável de controle interno da rotina automática que informa se houve erro durante o processamento.
+Private lAutoErrNoFile := .T.   // força a gravação das informações de erro em array para manipulação da gravação.
+Private lMsHelpAuto := .T.      // variável que define que o help deve ser gravado no arquivo de log e que as informações estão vindo à partir da rotina automática.
+
+    aadd(aCabec, {"C5_NUM",     cDoc,                                Nil})
+    aadd(aCabec, {"C5_TIPO",    "N",                                 Nil})
+    aadd(aCabec, {"C5_CLIENTE", objOrder[1]['cliente_codigo'],       Nil})
+    aadd(aCabec, {"C5_LOJACLI", objOrder[1]['cliente_loja'],         Nil})
+    aadd(aCabec, {"C5_LOJAENT", objOrder[1]['cliente_loja'],         Nil})
+    aadd(aCabec, {"C5_CONDPAG", objOrder[1]['cond_pagamento'],       Nil})
+    aadd(aCabec, {"C5_NUMEXT", objOrder[1]['id'],                    Nil})
+
+    For nX := 1 To len(objOrder)
+        aLinha := {}
+        aadd(aLinha,{"C6_ITEM",    StrZero(nX,2),                         Nil})
+        aadd(aLinha,{"C6_PRODUTO", objOrder[nX]['produto_codigo'],        Nil})
+        aadd(aLinha,{"C6_QTDVEN",  objOrder[nX]['quantidade'],            Nil})
+        aadd(aLinha,{"C6_QTDLIB",  objOrder[nX]['quantidade'],            Nil})
+        aadd(aLinha,{"C6_PRCVEN",  objOrder[nX]['valor_unitario'],        Nil})
+        aadd(aLinha,{"C6_PRUNIT",  objOrder[nX]['valor_unitario'],        Nil})
+        aadd(aLinha,{"C6_VALOR",   objOrder[nX]['valor_total'],           Nil})
+        aadd(aLinha,{"C6_OPER",    objOrder[nX]['tipo_venda'],            Nil})
+        aadd(aItens, aLinha)
+    Next nX
+
+    nOpcX := 3
+    MSExecAuto({|a, b, c, d| MATA410(a, b, c, d)}, aCabec, aItens, nOpcX, .F.)
+
+    oMessageResp := JsonObject():New()
+    oMessageResp['id'] := objOrder[1]['id']
+    oMessageResp['msg'] := ""
+    If !lMsErroAuto
+        lRet := .T.
+        ConfirmSx8()
+        oMessageResp['msg'] := "Pedido de venda " + cDoc + " inserido com sucesso."
+    Else
+        RollbackSx8()
+        lRet := .F.
+        aErroAuto := GetAutoGRLog()
+        cLogErro := ""
+        For nX := 1 To Len(aErroAuto)
+            cLogErro += StrTran(StrTran(aErroAuto[nX], "<", ""), "-", "") + CRLF
+        Next nX
+        oMessageResp['msg'] := cLogErro
+   EndIf
+   oMessageResp['sucess'] := lRet
+
+    // Enviar a mensagem de volta para a fila de pedidos
+    cMsg := EncodeUTF8( oMessageResp:ToJson() )
+    RabbitMQ.u_ProducerOrders(cMsg)
+    FreeObj(oMessageResp)
+
+Return lRet
