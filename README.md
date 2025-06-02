@@ -2,7 +2,7 @@
 
 POC de uso do RabbitMQ, integrando mensagens entre Protheus e Python
 
-[Assista ao vídeo no YouTube](https://youtube.com/seu_link_aqui)
+[Assista ao vídeo no YouTube](https://www.youtube.com/watch?v=EATG6x28EZk)
 
 ## 📌 Pré-Requistitos
     - Docker 
